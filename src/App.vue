@@ -22,11 +22,10 @@
     </div>
     <div style="margin-top: 20px">
       <div>关键帧</div>
-      <template v-for="item in 9">
-        <div>
-          <button @click="snapshotByFrame(item - 1)">下载第{{ item }}帧</button>
-        </div>
-      </template>
+      下载第
+      <input style="width: 100px; color: skyblue" type="text" v-model="frameValue" />
+      帧
+      <button @click="snapshotByFrame(frameValue - 1)">确认</button>
     </div>
   </div>
 </template>
@@ -36,7 +35,8 @@ import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
 import * as xlsx from '@/utils/xlsx'
 import { useFileDialog } from '@vueuse/core'
-
+import { defaultFrames } from '@/config/frame'
+const frameValue = ref(0)
 const previewElementBounding = ref<DOMRect | null>(null)
 const manualFiles = ref<File[]>([])
 const scriptFiles = ref<File[]>([])
@@ -51,10 +51,11 @@ const getPreviewElementPosition = () => {
 onMounted(() => {
   getPreviewElementPosition()
 })
+const xlsxData = ref([])
 
 const parseXlsx = (file: File) => {
   return new Promise(async (resolve, reject) => {
-    const workBook = xlsx.read(await file.arrayBuffer(), { cellDates: true })
+    const workBook = xlsx.read(await file.arrayBuffer())
 
     resolve(xlsx.utils.sheet_to_json(workBook.Sheets[workBook.SheetNames[0]]))
   })
@@ -79,8 +80,8 @@ function findElementsWithText(text: string, element: Node) {
 }
 const tags = ['时间日期', '运动健康', '工具类']
 const autoArr = [
-  ['小时', '分', '秒'],
-  ['步数', '卡路里', '心率'],
+  ['小时', '分', '秒', '月', '日'],
+  ['步数', '卡路里', '心率', '压力指数'],
   ['天气', '电量'],
 ]
 // const autoArr = [
@@ -88,66 +89,54 @@ const autoArr = [
 //   ['步数', '步数完成进度', '步数目标', '卡路里', '卡路里完成度', '卡路里目标'],
 //   ['电量'],
 // ]
-const dataSetting = [
-  // {
-  //   label: '时间',
-  //   value: [
-  //     '09:28:00',
-  //     '11:32:00',
-  //     '13:48:00',
-  //     '16:04:00',
-  //     '18:18:00',
-  //     '22:03:00',
-  //     '01:52:00',
-  //     '05:02:00',
-  //     '07:30:00',
-  //   ],
-  // },
-  {
-    label: '小时',
-    // 拆分出所有时间中的 "小时" 部分
-    value: ['09', '11', '13', '16', '18', '22', '01', '05', '07'],
-  },
-  {
-    label: '分',
-    // 拆分出所有时间中的 "分" 部分
-    value: ['28', '32', '48', '04', '18', '03', '52', '02', '30'],
-  },
-  {
-    label: '秒',
-    // 拆分出所有时间中的 "秒" 部分
-    value: ['00', '00', '00', '00', '00', '00', '00', '00', '00'],
-  },
-  {
-    label: '步数',
-    value: ['2560', '3680', '4086', '5846', '6424', '7898', '25', '68', '106'],
-  },
-  {
-    label: '心率',
-    value: ['78', '80', '88', '92', '94', '69', '56', '72', '82'],
-  },
-  {
-    label: '卡路里',
-    value: ['162', '392', '453', '534', '687', '825', '12', '48', '99'],
-  },
-]
 
+/** 格式化从xlsx导入的数据 */
+const formatXlsxToData = (xlsxData: Record<string, any>[]) => {
+  const arr: { label: string; value: string[] }[] = []
+  Object.keys(xlsxData[0]).forEach((key) => {
+    arr.push({
+      label: key,
+      value: xlsxData.map((item) => item[key]),
+    })
+  })
+  const timeData = arr.find((item) => item.label === '时间')
+  if (timeData) {
+    const time = xlsxData
+      .map((item) => item['时间'])
+      .map((timeStr) => {
+        return xlsx.excelTimeToHHMMSS(timeStr).split(':')
+      })
+
+    arr.push({
+      label: '小时',
+      value: time.map((item) => item[0]),
+    })
+    arr.push({
+      label: '分',
+      value: time.map((item) => item[1]),
+    })
+    arr.push({
+      label: '秒',
+      value: time.map((item) => item[2]),
+    })
+  }
+  return arr
+}
+
+let dataSetting = formatXlsxToData(defaultFrames)
 onChange((files) => {
   const file = files?.item(0)
-  debugger
   if (file) {
-    parseXlsx(file).then((res) => {
+    parseXlsx(file).then((res: any) => {
+      dataSetting = formatXlsxToData(res)
       debugger
-      xlsxData.value = res as any[]
     })
   }
 })
-
-const xlsxData = ref<any[]>([])
 /** 执行所有帧并截图 */
 const autoInput = async () => {
   scriptFiles.value.length = 0
-  for (let i = 0; i < 9; i++) {
+  for (let i = 0; i < dataSetting[0].value.length; i++) {
     await autoByFrame(i)
     await sleep(500)
     const file = await canvasToFile()
@@ -179,10 +168,29 @@ const openReactSelect = (el: HTMLInputElement) => {
 }
 
 /** 找到选项并点击 */
-const findReactSelectOption = (value: string) => {
-  const element = document.querySelector(
-    `.ant-select-item.ant-select-item-option[title="${value}"]`,
-  )
+const clickReactSelectOption = async (value: string) => {
+  let element
+  let scrollTop = 0
+  while (!element) {
+    await sleep(100)
+    element = document.querySelector(`.ant-select-item.ant-select-item-option[title="${value}"]`)
+    if (!element) {
+      const scrollBoxInner = document.querySelector(`.rc-virtual-list-holder-inner`)
+      if (!scrollBoxInner?.parentElement?.parentElement) return
+      const scrollBox = scrollBoxInner.parentElement.parentElement
+      scrollBox.scrollTop = scrollTop
+      scrollBox.scrollTop += 100
+      console.log(scrollBox.scrollTop, scrollTop, element)
+      if (scrollBox.scrollTop === scrollTop) {
+        return console.log('没有更多选项了')
+      }
+      scrollTop = scrollBox.scrollTop
+
+      continue
+    }
+  }
+
+  console.log('找到了选项', element)
   if (element instanceof HTMLElement) {
     element.click()
   }
@@ -205,30 +213,57 @@ const autoByFrame = async (i: number) => {
     tagEl[0].click()
     console.log(`点击了${tag}`, '@@')
     await sleep(100)
-    await Promise.all(
-      item.map(async (text) => {
-        const dataArr = dataSetting.find((item) => item.label === text)!.value
-
-        const elements = findElementsWithText(text, container as Node) as HTMLElement[]
-        console.log(`找到文本${text}`, elements, '@@')
-        if (elements.length > 0) {
-          let inputs
-          if (elements[0].nextElementSibling) {
-            inputs = elements[0].nextElementSibling.querySelectorAll('input')
-          } else {
-            inputs = elements[0].parentElement?.nextElementSibling?.querySelectorAll('input')
+    for (let k = 0; k < item.length; k++) {
+      const text = item[k]
+      switch (text) {
+        case '天气': {
+          const found = dataSetting.find((item) => item.label === text)
+          if (!found) return
+          const dataArr = found.value
+          const elements = findElementsWithText(text, container as Node) as HTMLElement[]
+          console.log(`找到文本${text}`, elements, '@@')
+          if (elements.length > 0) {
+            let inputs
+            if (elements[0].nextElementSibling) {
+              inputs = elements[0].nextElementSibling.querySelectorAll('input')
+            } else {
+              inputs = elements[0].parentElement?.nextElementSibling?.querySelectorAll('input')
+            }
+            console.log(`找到文本${text}对应input`, inputs, dataArr[i], dataArr, i, '@@')
+            if (inputs) {
+              const input = inputs[0]
+              openReactSelect(input)
+              await sleep(100)
+              await clickReactSelectOption(dataArr[i])
+              await sleep(100)
+            }
           }
-          console.log(`找到文本${text}对应input`, inputs, '@@')
-          if (inputs) {
-            const input = inputs[0]
-            editInputValue(input, dataArr[i])
-            console.log(tag, text, input.value, '@@')
-            await sleep(100)
-          }
+          break
         }
-        return text
-      }),
-    )
+        default: {
+          const dataArr = dataSetting.find((item) => item.label === text)!.value
+
+          const elements = findElementsWithText(text, container as Node) as HTMLElement[]
+          console.log(`找到文本${text}`, elements, '@@')
+          if (elements.length > 0) {
+            let inputs
+            if (elements[0].nextElementSibling) {
+              inputs = elements[0].nextElementSibling.querySelectorAll('input')
+            } else {
+              inputs = elements[0].parentElement?.nextElementSibling?.querySelectorAll('input')
+            }
+            console.log(`找到文本${text}对应input`, inputs, '@@')
+            if (inputs) {
+              const input = inputs[0]
+              editInputValue(input, dataArr[i])
+              console.log(tag, text, input.value, '@@')
+              await sleep(100)
+            }
+          }
+          break
+        }
+      }
+    }
   }
 }
 
@@ -292,16 +327,7 @@ const downloadPng = async (file: File, fileName?: string) => {
 
 const downloadXlsxTemplate = () => {
   const workBook = xlsx.utils.book_new()
-  const workSheet = xlsx.utils.json_to_sheet([
-    {
-      name: 'name',
-      age: 'age',
-    },
-    {
-      name: 'name1',
-      age: 'age2',
-    },
-  ])
+  const workSheet = xlsx.utils.json_to_sheet(defaultFrames)
   xlsx.utils.book_append_sheet(workBook, workSheet, 'Sheet1')
   xlsx.writeFileXLSX(workBook, 'template.xlsx')
 }
