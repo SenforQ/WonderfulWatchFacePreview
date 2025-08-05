@@ -46,9 +46,7 @@
         <div>
           帧率：<input type="text" v-model="item.frameRate" style="color: skyblue; width: 100px" />
         </div>
-        <div>
-          时间：<input type="text" v-model="item.time" style="color: skyblue; width: 100px" />
-        </div>
+
         <button @click="deleteKeyFrameConfig(index)">删除</button>
       </template>
       <div>
@@ -85,7 +83,6 @@ const keyFrameConfig = ref<
     label: string
     imgNumber: number
     frameRate: number
-    time: number
   }[]
 >([])
 const addKeyFrameConfig = () => {
@@ -93,11 +90,16 @@ const addKeyFrameConfig = () => {
     label: '序列帧1',
     imgNumber: 30,
     frameRate: 30,
-    time: 3,
   })
 }
 const deleteKeyFrameConfig = (index: number) => {
-  keyFrameConfig.value.splice(index, 1)
+  const delItems = keyFrameConfig.value.splice(index, 1)
+  delItems.forEach((item) => {
+    const foundIndex = dataSetting.findIndex((item) => item.label === delItems[0].label)
+    if (foundIndex > -1) {
+      dataSetting.splice(foundIndex, 1)
+    }
+  })
 }
 /** 将xlsx转为脚本需要的数据 */
 const parseXlsx = (file: File) => {
