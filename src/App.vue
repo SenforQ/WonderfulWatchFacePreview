@@ -27,6 +27,34 @@
       帧
       <button @click="snapshotByFrame(frameValue - 1)">确认</button>
     </div>
+    <div style="margin-top: 20px">
+      <div>
+        序列帧配置,
+        <button @click="addKeyFrameConfig">添加</button>
+      </div>
+      <template v-for="(item, index) in keyFrameConfig">
+        <div>
+          名称：<input type="text" v-model="item.label" style="color: skyblue; width: 100px" />
+        </div>
+        <div>
+          序列帧图片数量：<input
+            type="text"
+            v-model="item.imgNumber"
+            style="color: skyblue; width: 100px"
+          />
+        </div>
+        <div>
+          帧率：<input type="text" v-model="item.frameRate" style="color: skyblue; width: 100px" />
+        </div>
+        <div>
+          时间：<input type="text" v-model="item.time" style="color: skyblue; width: 100px" />
+        </div>
+        <button @click="deleteKeyFrameConfig(index)">删除</button>
+      </template>
+      <div>
+        <button @click="findKeyFrame">确认</button>
+      </div>
+    </div>
   </div>
 </template>
 <script setup lang="ts">
@@ -36,7 +64,7 @@ import { saveAs } from 'file-saver'
 import * as xlsx from '@/utils/xlsx'
 import { useFileDialog } from '@vueuse/core'
 import { defaultFrames } from '@/config/frame'
-const frameValue = ref(0)
+const frameValue = ref(1)
 const previewElementBounding = ref<DOMRect | null>(null)
 const manualFiles = ref<File[]>([])
 const scriptFiles = ref<File[]>([])
@@ -51,8 +79,27 @@ const getPreviewElementPosition = () => {
 onMounted(() => {
   getPreviewElementPosition()
 })
-const xlsxData = ref([])
 
+const keyFrameConfig = ref<
+  {
+    label: string
+    imgNumber: number
+    frameRate: number
+    time: number
+  }[]
+>([])
+const addKeyFrameConfig = () => {
+  keyFrameConfig.value.push({
+    label: '序列帧1',
+    imgNumber: 30,
+    frameRate: 30,
+    time: 3,
+  })
+}
+const deleteKeyFrameConfig = (index: number) => {
+  keyFrameConfig.value.splice(index, 1)
+}
+/** 将xlsx转为脚本需要的数据 */
 const parseXlsx = (file: File) => {
   return new Promise(async (resolve, reject) => {
     const workBook = xlsx.read(await file.arrayBuffer())
@@ -61,13 +108,16 @@ const parseXlsx = (file: File) => {
   })
 }
 
+/** 清除手动截图的缓存 */
 const clear = () => {
   manualFiles.value.length = 0
 }
-function findElementsWithText(text: string, element: Node) {
+
+/** 根据文本在容器内查找元素 */
+function findElementsWithText(text: string, element: Node): (HTMLElement | null)[] {
   const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null)
 
-  const elements = new Set()
+  const elements = new Set<HTMLElement | null>()
   let node
 
   while ((node = walker.nextNode())) {
@@ -204,6 +254,7 @@ const snapshot = async () => {
 /** 按帧索引执行脚本 */
 const autoByFrame = async (i: number) => {
   const container = document.querySelector('.container')
+  // 输入框的逻辑
   for (let j = 0; j < autoArr.length; j++) {
     const item = autoArr[j]
     const index = j
@@ -265,8 +316,23 @@ const autoByFrame = async (i: number) => {
       }
     }
   }
+
+  // 图片序列帧的逻辑
+  const keyFrameRunList = Array.from(keyFrameMap.keys())
+  console.log('图片序列帧的逻辑', keyFrameRunList, keyFrameMap)
+  for (let j = 0; j < keyFrameRunList.length; j++) {
+    const label = keyFrameRunList[j]
+    console.log('时间关键帧label', label)
+
+    const found = dataSetting.find((item) => item.label === label)
+    if (!found) continue
+    console.log('时间关键帧value', found, found.value, found.value[i], i)
+    await runChooseKeyFrame(label, found.value[i])
+    await sleep(100)
+  }
 }
 
+/** 延时函数 */
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /** 执行一帧并截图导出 */
@@ -300,6 +366,80 @@ const canvasToFile = (): Promise<File> => {
     })
   })
 }
+
+const keyFrameMap: Map<string, HTMLElement> = new Map()
+const findKeyFrame = () => {
+  const elArr = document.querySelectorAll('.h-10.cursor-default.border-transparent.overflow-hidden')
+  keyFrameConfig.value.map((keyFrame) => {
+    for (let i = 0; i < elArr.length; i++) {
+      const els = findElementsWithText(keyFrame.label, elArr[i]) as HTMLElement[]
+      if (els[0]) {
+        if (els[0]) {
+          keyFrameMap.set(keyFrame.label, els[0])
+          const keyFrameValue = []
+          // 计算每张图片的停留帧数
+          const stayFrameEachImg = Math.round(keyFrame.frameRate / keyFrame.imgNumber)
+          const allFrameLength = dataSetting[0].value.length
+
+          for (let i = 0; i < keyFrame.imgNumber; i++) {
+            for (let j = 0; j < stayFrameEachImg; j++) {
+              if (keyFrameValue.length >= allFrameLength) {
+                break
+              }
+              keyFrameValue.push(String(i))
+            }
+          }
+          while (keyFrameValue.length < allFrameLength) {
+            keyFrameValue.push(...keyFrameValue)
+          }
+          keyFrameValue.length = allFrameLength
+          const found = dataSetting.find((item) => item.label === keyFrame.label)
+          if (found) {
+            found.value = keyFrameValue
+          } else {
+            dataSetting.push({
+              label: keyFrame.label,
+              value: keyFrameValue,
+            })
+          }
+        }
+      }
+    }
+  })
+  console.log(dataSetting)
+}
+const clickSidebarItem = (el: HTMLElement) => {
+  const rect = el.getBoundingClientRect()
+  if (el?.parentElement?.parentElement?.parentElement?.parentElement) {
+    const clickEvent = new MouseEvent('click', {
+      clientX: rect.left,
+      clientY: rect.top,
+    })
+    console.log('侧边栏', el, '@@')
+    el?.parentElement?.parentElement?.parentElement?.parentElement.dispatchEvent(clickEvent)
+  }
+}
+
+/** 执行脚本选择关键帧, value从0开始 */
+const runChooseKeyFrame = async (keyFrameLabel: string, value: string) => {
+  const el = keyFrameMap.get(keyFrameLabel)
+  if (!el) return
+  clickSidebarItem(el)
+  await sleep(100)
+  console.log(`第${String(Number(value) + 1)}帧`)
+  findKeyFrameImg(value)
+}
+const findKeyFrameImg = async (value: string) => {
+  const el: HTMLElement | null = document.querySelector('img[alt="序列帧图片"]')
+  console.log(`'找到了序列帧图片'`, el)
+  if (!el) return
+  el.click()
+  await sleep(100)
+  const el2: HTMLElement | null = document.querySelector(`img[alt="序列帧图片${value}"]`)
+  console.log(`'找到了图片${value}'`, el2)
+  if (!el2) return
+  el2.click()
+}
 /** 下载通过脚本获取的图片zip文件 */
 const download = async (files: File[]) => {
   const jszip = new JSZip()
@@ -321,10 +461,12 @@ const download = async (files: File[]) => {
       saveAs(res, `${now}.zip`)
     })
 }
+/** 下载图片 */
 const downloadPng = async (file: File, fileName?: string) => {
   saveAs(file, `${fileName ?? file.name}`)
 }
 
+/** 下载xlsx模板 */
 const downloadXlsxTemplate = () => {
   const workBook = xlsx.utils.book_new()
   const workSheet = xlsx.utils.json_to_sheet(defaultFrames)
