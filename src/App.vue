@@ -144,6 +144,9 @@ const autoArr = [
 
 /** 格式化从xlsx导入的数据 */
 const formatXlsxToData = (xlsxData: Record<string, any>[]) => {
+  console.log('🔧 开始格式化数据，输入数据长度:', xlsxData.length)
+  console.log('🔧 输入数据第一行:', xlsxData[0])
+  
   const arr: { label: string; value: string[] }[] = []
   Object.keys(xlsxData[0]).forEach((key) => {
     arr.push({
@@ -151,8 +154,13 @@ const formatXlsxToData = (xlsxData: Record<string, any>[]) => {
       value: xlsxData.map((item) => item[key]),
     })
   })
+  
+  console.log('🔧 基础格式化后的数组:', arr)
+  console.log('🔧 基础格式化后的数组长度:', arr.length)
+  
   const timeData = arr.find((item) => item.label === '时间')
   if (timeData) {
+    console.log('🔧 找到时间字段，开始处理时间数据')
     const time = xlsxData
       .map((item) => item['时间'])
       .map((timeStr) => {
@@ -171,16 +179,33 @@ const formatXlsxToData = (xlsxData: Record<string, any>[]) => {
       label: '秒',
       value: time.map((item) => item[2]),
     })
+    
+    console.log('🔧 时间字段处理完成，最终数组长度:', arr.length)
+  } else {
+    console.log('🔧 未找到时间字段')
   }
+  
+  console.log('🔧 最终格式化结果:', arr)
   return arr
 }
 
 let dataSetting = formatXlsxToData(defaultFrames)
+console.log('🚀 初始化 dataSetting:', dataSetting)
+console.log('🚀 初始化 dataSetting 长度:', dataSetting.length)
 onChange((files) => {
   const file = files?.item(0)
   if (file) {
+    console.log('📁 上传的文件:', file.name, file.size, 'bytes')
     parseXlsx(file).then((res: any) => {
+      console.log('📊 解析后的原始数据:', res)
+      console.log('📊 原始数据长度:', res.length)
+      console.log('📊 原始数据第一行:', res[0])
+      
       dataSetting = formatXlsxToData(res)
+      console.log('🔄 格式化后的数据:', dataSetting)
+      console.log('🔄 格式化后数据长度:', dataSetting.length)
+      console.log('🔄 格式化后第一项:', dataSetting[0])
+      
       debugger
     })
   }
@@ -380,7 +405,8 @@ const findKeyFrame = () => {
           keyFrameMap.set(keyFrame.label, els[0])
           const keyFrameValue = []
           // 计算每张图片的停留帧数
-          const stayFrameEachImg = Math.round(keyFrame.frameRate / keyFrame.imgNumber)
+          //const stayFrameEachImg = Math.round(keyFrame.frameRate / keyFrame.imgNumber)
+          const stayFrameEachImg = Math.round(30 / keyFrame.frameRate)
           const allFrameLength = dataSetting[0].value.length
 
           for (let i = 0; i < keyFrame.imgNumber; i++) {
